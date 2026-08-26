@@ -1,0 +1,828 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Chat & Notification Demo</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .chat-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .chat-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .chat-scroll::-webkit-scrollbar-thumb {
+            background-color: rgba(156, 163, 175, 0.5);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans h-screen flex flex-col">
+
+    <!-- Auth Container -->
+    <div id="auth-container" class="flex-grow flex items-center justify-center">
+        <div class="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+            <h2 class="text-2xl font-bold mb-6 text-center text-indigo-600">Antigravity Chat Portal</h2>
+            
+            <!-- Tabs -->
+            <div class="flex border-b mb-6">
+                <button id="tab-login" class="w-1/2 pb-2 text-center font-semibold border-b-2 border-indigo-600 text-indigo-600" onclick="switchAuthTab('login')">Login</button>
+                <button id="tab-register" class="w-1/2 pb-2 text-center font-semibold text-gray-500 hover:text-indigo-600" onclick="switchAuthTab('register')">Register</button>
+            </div>
+
+            <!-- Login Form -->
+            <form id="login-form" class="space-y-4" onsubmit="handleLogin(event)">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Username</label>
+                    <input type="text" id="login-username" required class="mt-1 w-full p-2 border rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="password" id="login-password" required class="mt-1 w-full p-2 border rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 text-white p-2 rounded-md hover:bg-indigo-700 transition">Log In</button>
+            </form>
+
+            <!-- Register Form -->
+            <form id="register-form" class="space-y-4 hidden" onsubmit="handleRegister(event)">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Username</label>
+                    <input type="text" id="register-username" required class="mt-1 w-full p-2 border rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Email Address</label>
+                    <input type="email" id="register-email" required class="mt-1 w-full p-2 border rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="password" id="register-password" required class="mt-1 w-full p-2 border rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <button type="submit" class="w-full bg-green-600 text-white p-2 rounded-md hover:bg-green-700 transition">Register</button>
+            </form>
+
+            <div id="auth-error" class="mt-4 text-red-500 text-sm text-center hidden"></div>
+        </div>
+    </div>
+
+    <!-- App Container -->
+    <div id="app-container" class="hidden flex-grow flex flex-col h-screen overflow-hidden">
+        <!-- Header -->
+        <header class="bg-indigo-600 text-white px-6 py-4 flex items-center justify-between shadow-md">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <span>💬 Antigravity Real-Time Chat</span>
+                <span id="ws-status-badge" class="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full font-medium">Offline</span>
+            </h1>
+            <div class="flex items-center gap-4">
+                <span class="text-sm opacity-90">Logged in as: <strong id="logged-user-display" class="font-semibold"></strong></span>
+                <button onclick="handleLogout()" class="bg-indigo-800 hover:bg-indigo-900 text-white text-sm px-3 py-1.5 rounded-md transition">Logout</button>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <div class="flex-grow flex overflow-hidden">
+            <!-- Sidebar -->
+            <aside class="w-80 bg-white border-r flex flex-col h-full flex-shrink-0">
+                <!-- Actions -->
+                <div class="p-4 border-b space-y-4">
+                    <!-- Create Room -->
+                    <div>
+                        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Create / Join Group</h3>
+                        <div class="flex gap-2">
+                            <input type="text" id="new-room-name" placeholder="Room Name" class="flex-grow p-1.5 border rounded text-sm focus:ring-1 focus:ring-indigo-500">
+                            <button onclick="createGroupRoom()" class="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded hover:bg-indigo-700 transition">Create</button>
+                        </div>
+                    </div>
+                    <!-- Direct Message -->
+                    <div>
+                        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Start Direct Message</h3>
+                        <div class="flex gap-2">
+                            <input type="text" id="dm-target-username" placeholder="Username" class="flex-grow p-1.5 border rounded text-sm focus:ring-1 focus:ring-indigo-500">
+                            <button onclick="createDMRoom()" class="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded hover:bg-indigo-700 transition">Chat</button>
+                        </div>
+                    </div>
+                    <!-- Join via ID -->
+                    <div>
+                        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Join Group by Room ID</h3>
+                        <div class="flex gap-2">
+                            <input type="text" id="join-room-id" placeholder="UUID Room ID" class="flex-grow p-1.5 border rounded text-sm focus:ring-1 focus:ring-indigo-500">
+                            <button onclick="joinGroupById()" class="bg-green-600 text-white text-xs px-3 py-1.5 rounded hover:bg-green-700 transition">Join</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Rooms List -->
+                <div class="flex-grow overflow-y-auto p-4">
+                    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Your Chat Rooms</h3>
+                    <div id="rooms-list-container" class="space-y-1">
+                        <!-- Rooms loaded dynamically -->
+                        <p class="text-sm text-gray-400 italic">No rooms joined yet</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Chat Pane -->
+            <main class="flex-grow bg-gray-50 flex flex-col h-full relative">
+                <div id="no-chat-selected" class="absolute inset-0 bg-gray-50 flex flex-col items-center justify-center z-10">
+                    <div class="text-center p-8 max-w-sm">
+                        <span class="text-5xl">👋</span>
+                        <h2 class="text-xl font-bold text-gray-700 mt-4 mb-2">Welcome to Antigravity</h2>
+                        <p class="text-gray-500 text-sm">Select a room or start a direct message to begin chatting in real-time.</p>
+                    </div>
+                </div>
+
+                <!-- Chat Header -->
+                <div class="bg-white border-b px-6 py-3 flex items-center justify-between">
+                    <div>
+                        <h2 id="active-room-title" class="font-bold text-gray-800 text-lg">Active Room</h2>
+                        <p id="active-room-desc" class="text-xs text-gray-500"></p>
+                    </div>
+                    <div class="flex gap-2">
+                        <span id="room-id-badge" class="text-[10px] bg-gray-200 text-gray-600 px-2 py-1 rounded font-mono select-all"></span>
+                        <button id="leave-room-btn" onclick="leaveActiveRoom()" class="text-red-500 hover:text-red-700 text-xs font-semibold">Leave Room</button>
+                    </div>
+                </div>
+
+                <!-- Chat Messages Scroll Area -->
+                <div id="chat-messages" class="flex-grow overflow-y-auto p-6 space-y-4 chat-scroll flex flex-col-reverse">
+                    <!-- Loaded dynamically, aligned using Flex reverse for easy bottom-loading and infinite scroll mapping -->
+                    <div id="messages-anchor"></div>
+                </div>
+
+                <!-- Chat Footer / Input Form -->
+                <div class="bg-white border-t p-4">
+                    <form id="chat-form" class="flex gap-4" onsubmit="sendMessage(event)">
+                        <input type="text" id="chat-input" placeholder="Type a message..." required class="flex-grow p-2.5 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-2.5 rounded-md transition text-sm flex-shrink-0">Send</button>
+                    </form>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script>
+        let token = localStorage.getItem("chat_token") || null;
+        let currentUser = null;
+        let ws = null;
+        let activeRoomId = null;
+        let currentRooms = [];
+        let cursorTracker = null;
+        let hasMoreMessages = false;
+        let wsReconnectAttempts = 0;
+        let currentTab = 'login';
+        let userPresenceMap = {}; // Tracks users presence
+
+        const API_PREFIX = "/api/v1";
+
+        // Startup verification
+        document.addEventListener("DOMContentLoaded", () => {
+            if (token) {
+                initializeDashboard();
+            } else {
+                showAuth();
+            }
+        });
+
+        function showAuth() {
+            document.getElementById("auth-container").classList.remove("hidden");
+            document.getElementById("app-container").classList.add("hidden");
+        }
+
+        function switchAuthTab(tab) {
+            currentTab = tab;
+            const tabLogin = document.getElementById("tab-login");
+            const tabRegister = document.getElementById("tab-register");
+            const formLogin = document.getElementById("login-form");
+            const formRegister = document.getElementById("register-form");
+            const errDiv = document.getElementById("auth-error");
+
+            errDiv.classList.add("hidden");
+
+            if (tab === 'login') {
+                tabLogin.className = "w-1/2 pb-2 text-center font-semibold border-b-2 border-indigo-600 text-indigo-600";
+                tabRegister.className = "w-1/2 pb-2 text-center font-semibold text-gray-500 hover:text-indigo-600";
+                formLogin.classList.remove("hidden");
+                formRegister.classList.add("hidden");
+            } else {
+                tabRegister.className = "w-1/2 pb-2 text-center font-semibold border-b-2 border-green-600 text-green-600";
+                tabLogin.className = "w-1/2 pb-2 text-center font-semibold text-gray-500 hover:text-green-600";
+                formRegister.classList.remove("hidden");
+                formLogin.classList.add("hidden");
+            }
+        }
+
+        async function handleRegister(e) {
+            e.preventDefault();
+            const username = document.getElementById("register-username").value;
+            const email = document.getElementById("register-email").value;
+            const password = document.getElementById("register-password").value;
+            const errDiv = document.getElementById("auth-error");
+
+            errDiv.classList.add("hidden");
+
+            try {
+                const res = await fetch(`${API_PREFIX}/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, email, password })
+                });
+
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.detail || "Registration failed");
+                }
+
+                // Auto login after registration
+                document.getElementById("login-username").value = username;
+                document.getElementById("login-password").value = password;
+                switchAuthTab('login');
+                errDiv.classList.remove("hidden");
+                errDiv.className = "mt-4 text-green-600 text-sm text-center";
+                errDiv.innerText = "Registered successfully! Logging in...";
+                setTimeout(() => {
+                    handleLogin(e);
+                }, 1000);
+
+            } catch (err) {
+                errDiv.className = "mt-4 text-red-500 text-sm text-center";
+                errDiv.classList.remove("hidden");
+                errDiv.innerText = err.message;
+            }
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const username = document.getElementById("login-username").value;
+            const password = document.getElementById("login-password").value;
+            const errDiv = document.getElementById("auth-error");
+
+            errDiv.classList.add("hidden");
+
+            try {
+                // Form URLencoded payload for standard OAuth2 Form support
+                const formDetails = new URLSearchParams();
+                formDetails.append("username", username);
+                formDetails.append("password", password);
+
+                const res = await fetch(`${API_PREFIX}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: formDetails
+                });
+
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data.detail || "Invalid username or password");
+                }
+
+                token = data.access_token;
+                localStorage.setItem("chat_token", token);
+                await initializeDashboard();
+
+            } catch (err) {
+                errDiv.className = "mt-4 text-red-500 text-sm text-center";
+                errDiv.classList.remove("hidden");
+                errDiv.innerText = err.message;
+            }
+        }
+
+        function handleLogout() {
+            if (ws) {
+                ws.close();
+            }
+            localStorage.removeItem("chat_token");
+            token = null;
+            currentUser = null;
+            activeRoomId = null;
+            userPresenceMap = {};
+            showAuth();
+        }
+
+        async function initializeDashboard() {
+            document.getElementById("auth-container").classList.add("hidden");
+            document.getElementById("app-container").classList.remove("hidden");
+
+            try {
+                // Fetch logged-in user profile
+                const res = await fetch(`${API_PREFIX}/auth/register`, { // Hacky check by reusing auth validation or adding details endpoint. Let's make token check endpoint
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                // Let's resolve the user identity. We can fetch rooms which returns 401 if invalid.
+                const roomsRes = await fetch(`${API_PREFIX}/rooms`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (!roomsRes.ok) {
+                    throw new Error("Expired or invalid session");
+                }
+
+                // Simple client side parse of user ID from JWT payload
+                const base64Url = token.split('.')[1];
+                const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
+                    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                }).join(''));
+                
+                const jwtData = JSON.parse(jsonPayload);
+                currentUser = { id: jwtData.sub };
+                
+                // Fetch user rooms list
+                currentRooms = await roomsRes.json();
+                
+                // Set username display using parsed info or simple placeholder since sub contains ID
+                document.getElementById("logged-user-display").innerText = currentUser.id.substring(0,8);
+
+                // Render rooms sidebar
+                renderRoomsList();
+                
+                // Establish WebSocket Connection
+                connectWebSocket();
+
+            } catch (err) {
+                console.error(err);
+                handleLogout();
+            }
+        }
+
+        // --- WebSocket Communications ---
+        function connectWebSocket() {
+            const loc = window.location;
+            const wsProto = loc.protocol === "https:" ? "wss:" : "ws:";
+            const wsUrl = `${wsProto}//${loc.host}/ws?token=${token}`;
+
+            console.log(`Connecting to WebSocket: ${wsUrl}`);
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log("WebSocket connected.");
+                wsReconnectAttempts = 0;
+                updateWSStatus(true);
+                // Start heartbeat pings
+                startHeartbeat();
+            };
+
+            ws.onmessage = (event) => {
+                let msgData;
+                try {
+                    msgData = JSON.parse(event.data);
+                } catch (e) {
+                    console.error("Failed to parse socket message: ", e);
+                    return;
+                }
+
+                handleWSMessage(msgData);
+            };
+
+            ws.onerror = (err) => {
+                console.error("WebSocket Error: ", err);
+            };
+
+            ws.onclose = () => {
+                console.log("WebSocket closed.");
+                updateWSStatus(false);
+                stopHeartbeat();
+                
+                // Handle Auto-reconnect with Backoff
+                if (token) {
+                    wsReconnectAttempts++;
+                    const delay = Math.min(1000 * Math.pow(2, wsReconnectAttempts), 30000);
+                    console.log(`Reconnecting to WebSocket in ${delay/1000}s...`);
+                    setTimeout(connectWebSocket, delay);
+                }
+            };
+        }
+
+        let heartbeatInterval = null;
+        function startHeartbeat() {
+            heartbeatInterval = setInterval(() => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: "ping" }));
+                }
+            }, 15000);
+        }
+
+        function stopHeartbeat() {
+            if (heartbeatInterval) {
+                clearInterval(heartbeatInterval);
+                heartbeatInterval = null;
+            }
+        }
+
+        function updateWSStatus(isOnline) {
+            const badge = document.getElementById("ws-status-badge");
+            if (isOnline) {
+                badge.innerText = "Connected";
+                badge.className = "bg-green-500 text-white text-xs px-2 py-0.5 rounded-full font-medium animate-pulse";
+            } else {
+                badge.innerText = "Offline";
+                badge.className = "bg-red-500 text-white text-xs px-2 py-0.5 rounded-full font-medium";
+            }
+        }
+
+        // Handle incoming server WS payloads
+        function handleWSMessage(message) {
+            const type = message.type;
+            const data = message.data;
+
+            if (type === "message") {
+                // If it is for the active room, render it
+                if (data.room_id === activeRoomId) {
+                    appendIncomingMessage(data);
+                    
+                    // Send Read Receipt if message is from someone else
+                    if (data.sender_id !== currentUser.id) {
+                        sendReadAck(data.id);
+                    }
+                } else {
+                    // Update room unread highlights in sidebar
+                    highlightUnreadRoom(data.room_id);
+                }
+            } 
+            else if (type === "message_status_update") {
+                if (data.room_id === activeRoomId) {
+                    updateMessageStatusUI(data.message_id, data.status);
+                }
+            }
+            else if (type === "presence_change") {
+                userPresenceMap[data.user_id] = data.status;
+                renderRoomsList(); // Re-render rooms list to show updated presence icon if relevant
+                updateActiveRoomPresence();
+            }
+            else if (type === "joined_room") {
+                // Triggered dynamically from backend when joining via REST API
+                syncJoinedRoomsList();
+            }
+            else if (type === "left_room") {
+                syncJoinedRoomsList();
+            }
+            else if (type === "error") {
+                alert(`Server Warning: ${data.message}`);
+            }
+        }
+
+        function sendReadAck(messageId) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: "message_ack",
+                    data: {
+                        message_id: messageId,
+                        status: "READ"
+                    }
+                }));
+            }
+        }
+
+        // --- Sidebar Management ---
+        function renderRoomsList() {
+            const container = document.getElementById("rooms-list-container");
+            container.innerHTML = "";
+
+            if (currentRooms.length === 0) {
+                container.innerHTML = `<p class="text-sm text-gray-400 italic">No rooms joined yet</p>`;
+                return;
+            }
+
+            currentRooms.forEach(room => {
+                const isActive = room.id === activeRoomId;
+                const activeClasses = isActive ? "bg-indigo-50 border-indigo-600 text-indigo-900" : "hover:bg-gray-50 border-transparent text-gray-700";
+                
+                const roomDiv = document.createElement("div");
+                roomDiv.className = `p-3 border-l-4 rounded-r-md cursor-pointer transition flex items-center justify-between ${activeClasses}`;
+                roomDiv.onclick = () => selectRoom(room.id);
+
+                const infoDiv = document.createElement("div");
+                infoDiv.className = "flex-grow truncate mr-2";
+                
+                const nameP = document.createElement("p");
+                nameP.className = "text-sm font-semibold truncate";
+                nameP.innerText = room.name || `Group Chat (${room.id.substring(0,5)})`;
+                
+                const typeSpan = document.createElement("span");
+                typeSpan.className = "text-[10px] text-gray-400 block";
+                typeSpan.innerText = room.is_group ? "Group Room" : "Direct Message 1:1";
+
+                infoDiv.appendChild(nameP);
+                infoDiv.appendChild(typeSpan);
+                roomDiv.appendChild(infoDiv);
+
+                // Add unread dot placeholder
+                const unreadBadge = document.createElement("span");
+                unreadBadge.id = `unread-${room.id}`;
+                unreadBadge.className = "h-2.5 w-2.5 bg-indigo-600 rounded-full flex-shrink-0 hidden";
+                roomDiv.appendChild(unreadBadge);
+
+                container.appendChild(roomDiv);
+            });
+        }
+
+        async function syncJoinedRoomsList() {
+            try {
+                const res = await fetch(`${API_PREFIX}/rooms`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    currentRooms = await res.json();
+                    renderRoomsList();
+                }
+            } catch (err) {
+                console.error("Failed to sync rooms: ", err);
+            }
+        }
+
+        function highlightUnreadRoom(roomId) {
+            const badge = document.getElementById(`unread-${roomId}`);
+            if (badge) {
+                badge.classList.remove("hidden");
+            }
+        }
+
+        function clearUnreadRoom(roomId) {
+            const badge = document.getElementById(`unread-${roomId}`);
+            if (badge) {
+                badge.classList.add("hidden");
+            }
+        }
+
+        // --- Room Operations ---
+        async function createGroupRoom() {
+            const nameInput = document.getElementById("new-room-name");
+            const name = nameInput.value.trim();
+            if (!name) return;
+
+            try {
+                const res = await fetch(`${API_PREFIX}/rooms`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ name, is_group: true })
+                });
+
+                if (!res.ok) throw new Error("Failed to create room");
+                
+                nameInput.value = "";
+                await syncJoinedRoomsList();
+                
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        async function createDMRoom() {
+            const nameInput = document.getElementById("dm-target-username");
+            const targetUsername = nameInput.value.trim();
+            if (!targetUsername) return;
+
+            try {
+                const res = await fetch(`${API_PREFIX}/rooms/dm`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ target_username: targetUsername })
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Failed to start DM");
+                
+                nameInput.value = "";
+                await syncJoinedRoomsList();
+                selectRoom(data.id);
+                
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        async function joinGroupById() {
+            const idInput = document.getElementById("join-room-id");
+            const roomId = idInput.value.trim();
+            if (!roomId) return;
+
+            try {
+                const res = await fetch(`${API_PREFIX}/rooms/${roomId}/join`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!res.ok) throw new Error("Failed to join room. Verify UUID.");
+
+                idInput.value = "";
+                await syncJoinedRoomsList();
+                selectRoom(roomId);
+
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        async function selectRoom(roomId) {
+            activeRoomId = roomId;
+            clearUnreadRoom(roomId);
+            renderRoomsList();
+
+            // Hide the 'no chat selected' screen
+            document.getElementById("no-chat-selected").classList.add("hidden");
+
+            // Setup active room headers
+            const room = currentRooms.find(r => r.id === roomId);
+            if (room) {
+                document.getElementById("active-room-title").innerText = room.name || `Chat ID: ${room.id}`;
+                document.getElementById("active-room-desc").innerText = room.is_group ? "Group chatroom" : "Private 1:1 direct messaging";
+                document.getElementById("room-id-badge").innerText = `ID: ${room.id}`;
+            }
+
+            // Clear active message panels and reload history
+            const list = document.getElementById("chat-messages");
+            // Clear message DOM but preserve anchor
+            list.innerHTML = `<div id="messages-anchor"></div>`;
+            
+            cursorTracker = null;
+            hasMoreMessages = false;
+            
+            await loadRoomMessages(roomId);
+        }
+
+        async function leaveActiveRoom() {
+            if (!activeRoomId) return;
+            if (!confirm("Are you sure you want to leave this room?")) return;
+
+            try {
+                const res = await fetch(`${API_PREFIX}/rooms/${activeRoomId}/leave`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (!res.ok) throw new Error("Failed to leave room");
+
+                document.getElementById("no-chat-selected").classList.remove("hidden");
+                activeRoomId = null;
+                await syncJoinedRoomsList();
+
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        function updateActiveRoomPresence() {
+            // Can be expanded to display online/offline status bar for DM chats
+        }
+
+        // --- Message Loading and UI rendering ---
+        async function loadRoomMessages(roomId) {
+            let url = `${API_PREFIX}/rooms/${roomId}/messages?limit=25`;
+            if (cursorTracker) {
+                url += `&cursor=${encodeURIComponent(cursorTracker)}`;
+            }
+
+            try {
+                const res = await fetch(url, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!res.ok) throw new Error("Failed to load messages");
+
+                const page = await res.json();
+                
+                // Set paging tracking
+                cursorTracker = page.next_cursor;
+                hasMoreMessages = page.has_more;
+
+                // Loop messages and append to chat window
+                // Items from API are reversed (oldest -> newest in terms of arrival but API sends sorted DESC and reversed).
+                // Because we use `flex-col-reverse` for message window, new messages are appended to top of DOM (bottom of view).
+                // So when displaying historical list, we insert them one by one.
+                page.items.forEach(msg => {
+                    renderMessageRow(msg, false); // prepends to view (historical order)
+                    
+                    // Mark read if necessary
+                    if (msg.sender_id !== currentUser.id && msg.status !== "READ") {
+                        sendReadAck(msg.id);
+                    }
+                });
+
+            } catch (err) {
+                console.error("Error loading chat history: ", err);
+            }
+        }
+
+        function renderMessageRow(msg, isNew = false) {
+            const chatBox = document.getElementById("chat-messages");
+            const anchor = document.getElementById("messages-anchor");
+
+            const isMe = msg.sender_id === currentUser.id;
+            const wrapper = document.createElement("div");
+            wrapper.id = `msg-wrap-${msg.id}`;
+            wrapper.className = `flex w-full ${isMe ? 'justify-end' : 'justify-start'}`;
+
+            const bubble = document.createElement("div");
+            bubble.className = `max-w-xs md:max-w-md rounded-lg p-3 shadow-sm relative ${isMe ? 'bg-indigo-600 text-white' : 'bg-white text-gray-800'}`;
+
+            // Sender username
+            const senderP = document.createElement("p");
+            senderP.className = `text-[10px] font-bold mb-1 opacity-75`;
+            senderP.innerText = isMe ? "You" : msg.sender_username;
+            bubble.appendChild(senderP);
+
+            // Message text
+            const contentP = document.createElement("p");
+            contentP.className = "text-sm break-words";
+            contentP.innerText = msg.content;
+            bubble.appendChild(contentP);
+
+            // Footer (Time + Delivery checks)
+            const footerDiv = document.createElement("div");
+            footerDiv.className = "flex items-center justify-end gap-1.5 mt-1.5 opacity-60";
+            
+            const timeSpan = document.createElement("span");
+            timeSpan.className = "text-[9px]";
+            const date = new Date(msg.created_at);
+            timeSpan.innerText = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            footerDiv.appendChild(timeSpan);
+
+            if (isMe) {
+                const statusSpan = document.createElement("span");
+                statusSpan.id = `status-${msg.id}`;
+                statusSpan.className = "text-[10px] font-semibold";
+                statusSpan.innerText = getStatusChecks(msg.status);
+                footerDiv.appendChild(statusSpan);
+            }
+
+            bubble.appendChild(footerDiv);
+            wrapper.appendChild(bubble);
+
+            if (isNew) {
+                // Insert right after anchor (inserts at bottom of reverse flex container)
+                chatBox.insertBefore(wrapper, anchor.nextSibling);
+            } else {
+                // Place older historical messages at the top (bottom of the flex-col-reverse stack)
+                chatBox.appendChild(wrapper);
+            }
+        }
+
+        // Append real-time incoming messages to screen
+        function appendIncomingMessage(msg) {
+            renderMessageRow(msg, true);
+            // Scroll to bottom of chat
+            const chatBox = document.getElementById("chat-messages");
+            chatBox.scrollTop = 0; // Since it is flex-col-reverse, 0 is the bottom scroll position!
+        }
+
+        function getStatusChecks(status) {
+            if (status === "SENT") return "✓";
+            if (status === "DELIVERED") return "✓✓";
+            if (status === "READ") return "✓✓ 👁";
+            return "";
+        }
+
+        function updateMessageStatusUI(messageId, status) {
+            const element = document.getElementById(`status-${messageId}`);
+            if (element) {
+                element.innerText = getStatusChecks(status);
+            }
+        }
+
+        // --- Message Actions ---
+        function sendMessage(e) {
+            e.preventDefault();
+            const input = document.getElementById("chat-input");
+            const content = input.value.trim();
+            if (!content || !activeRoomId) return;
+
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: "send_message",
+                    data: {
+                        room_id: activeRoomId,
+                        content: content
+                    }
+                }));
+                input.value = "";
+            } else {
+                alert("WebSocket connection is offline. Reconnecting...");
+            }
+        }
+
+        // Infinite Scroll to fetch older history when scrolling upwards
+        const chatScrollEl = document.getElementById("chat-messages");
+        chatScrollEl.addEventListener("scroll", () => {
+            // In flex-col-reverse, scrollTop starts at 0 (bottom) and decreases to negative numbers as you scroll UP.
+            // Some browsers use positive values but scrollHeight - clientHeight == scrollTop.
+            // Standard check for scrolled to TOP in flex-col-reverse:
+            const absoluteScrollTop = Math.abs(chatScrollEl.scrollTop);
+            const scrollRange = chatScrollEl.scrollHeight - chatScrollEl.clientHeight;
+            
+            // If scrolled near top (which means absoluteScrollTop is close to scrollRange)
+            if (hasMoreMessages && cursorTracker && (scrollRange - absoluteScrollTop < 10)) {
+                const tempCursor = cursorTracker;
+                cursorTracker = null; // throttle additional triggers
+                loadRoomMessages(activeRoomId);
+            }
+        });
+    </script>
+</body>
+</html>
