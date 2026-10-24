@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Realtime Chat Demo</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .chat-scroll::-webkit-scrollbar {
+            width: 6px;
+        }
+        .chat-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .chat-scroll::-webkit-scrollbar-thumb {
+            background-color: rgba(156, 163, 175, 0.5);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans h-screen flex flex-col">
+
+    <!-- Auth Container -->
+    <div id="auth-container" class="flex-grow flex items-center justify-center">
+        <div class="bg-white p-8 rounded-lg shadow-md w-full max-w-md">
+            <h2 class="text-2xl font-bold mb-6 text-center text-indigo-600">Realtime Chat</h2>
+            
+            <!-- Tabs -->
+            <div class="flex border-b mb-6">
+                <button id="tab-login" class="w-1/2 pb-2 text-center font-semibold border-b-2 border-indigo-600 text-indigo-600" onclick="switchAuthTab('login')">Login</button>
+                <button id="tab-register" class="w-1/2 pb-2 text-center font-semibold text-gray-500 hover:text-indigo-600" onclick="switchAuthTab('register')">Register</button>
+            </div>
+
+            <!-- Login Form -->
+            <form id="login-form" class="space-y-4" onsubmit="handleLogin(event)">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Username</label>
+                    <input type="text" id="login-username" required class="mt-1 w-full p-2 border rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="password" id="login-password" required class="mt-1 w-full p-2 border rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <button type="submit" class="w-full bg-indigo-600 text-white p-2 rounded-md hover:bg-indigo-700 transition">Log In</button>
+            </form>
+
+            <!-- Register Form -->
+            <form id="register-form" class="space-y-4 hidden" onsubmit="handleRegister(event)">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Username</label>
+                    <input type="text" id="register-username" required class="mt-1 w-full p-2 border rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Email Address</label>
+                    <input type="email" id="register-email" required class="mt-1 w-full p-2 border rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="password" id="register-password" required class="mt-1 w-full p-2 border rounded-md focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <button type="submit" class="w-full bg-green-600 text-white p-2 rounded-md hover:bg-green-700 transition">Register</button>
+            </form>
+
+            <div id="auth-error" class="mt-4 text-red-500 text-sm text-center hidden"></div>
+        </div>
+    </div>
+
+    <!-- Notification toasts -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2 w-80"></div>
+
+    <!-- App Container -->
+    <div id="app-container" class="hidden flex-grow flex flex-col h-screen overflow-hidden">
+        <!-- Header -->
+        <header class="bg-indigo-600 text-white px-6 py-4 flex items-center justify-between shadow-md">
+            <h1 class="text-xl font-bold flex items-center gap-2">
+                <span>💬 Realtime Chat</span>
+                <span id="ws-status-badge" class="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full font-medium">Offline</span>
+            </h1>
+            <div class="flex items-center gap-4">
+                <span class="text-sm opacity-90">Logged in as: <strong id="logged-user-display" class="font-semibold"></strong></span>
+                <button onclick="handleLogout()" class="bg-indigo-800 hover:bg-indigo-900 text-white text-sm px-3 py-1.5 rounded-md transition">Logout</button>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <div class="flex-grow flex overflow-hidden">
+            <!-- Sidebar -->
+            <aside class="w-80 bg-white border-r flex flex-col h-full flex-shrink-0">
+                <!-- Actions -->
+                <div class="p-4 border-b space-y-4">
+                    <!-- Create Room -->
+                    <div>
+                        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Create / Join Group</h3>
+                        <div class="flex gap-2">
+                            <input type="text" id="new-room-name" placeholder="Room Name" class="flex-grow p-1.5 border rounded text-sm focus:ring-1 focus:ring-indigo-500">
+                            <button onclick="createGroupRoom()" class="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded hover:bg-indigo-700 transition">Create</button>
+                        </div>
+                    </div>
+                    <!-- Direct Message -->
+                    <div>
+                        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Start Direct Message</h3>
+                        <div class="flex gap-2">
+                            <input type="text" id="dm-target-username" placeholder="Username" class="flex-grow p-1.5 border rounded text-sm focus:ring-1 focus:ring-indigo-500">
+                            <button onclick="createDirectRoom()" class="bg-indigo-600 text-white text-xs px-3 py-1.5 rounded hover:bg-indigo-700 transition">Chat</button>
+                        </div>
+                    </div>
+                    <!-- Join via ID -->
+                    <div>
+                        <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Join Group by Room ID</h3>
+                        <div class="flex gap-2">
+                            <input type="text" id="join-room-id" placeholder="UUID Room ID" class="flex-grow p-1.5 border rounded text-sm focus:ring-1 focus:ring-indigo-500">
+                            <button onclick="joinGroupById()" class="bg-green-600 text-white text-xs px-3 py-1.5 rounded hover:bg-green-700 transition">Join</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Rooms List -->
+                <div class="flex-grow overflow-y-auto p-4">
+                    <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Your Chat Rooms</h3>
+                    <div id="rooms-list-container" class="space-y-1">
+                        <!-- Rooms loaded dynamically -->
+                        <p class="text-sm text-gray-400 italic">No rooms joined yet</p>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Chat Pane -->
+            <main class="flex-grow bg-gray-50 flex flex-col h-full relative">
+                <div id="no-chat-selected" class="absolute inset-0 bg-gray-50 flex flex-col items-center justify-center z-10">
+                    <div class="text-center p-8 max-w-sm">
+                        <span class="text-5xl">👋</span>
+                        <h2 class="text-xl font-bold text-gray-700 mt-4 mb-2">Welcome</h2>
+                        <p class="text-gray-500 text-sm">Select a room or start a direct message to begin chatting in real-time.</p>
+                    </div>
+                </div>
+
+                <!-- Chat Header -->
+                <div class="bg-white border-b px-6 py-3 flex items-center justify-between">
+                    <div>
+                        <h2 id="active-room-title" class="font-bold text-gray-800 text-lg">Active Room</h2>
+                        <p id="active-room-desc" class="text-xs text-gray-500"></p>
+                    </div>
+                    <div class="flex gap-2">
+                        <span id="room-id-badge" class="text-[10px] bg-gray-200 text-gray-600 px-2 py-1 rounded font-mono select-all"></span>
+                        <button id="leave-room-btn" onclick="leaveActiveRoom()" class="text-red-500 hover:text-red-700 text-xs font-semibold">Leave Room</button>
+                    </div>
+                </div>
+
+                <!-- Chat Messages Scroll Area -->
+                <div id="chat-messages" class="flex-grow overflow-y-auto p-6 space-y-4 chat-scroll flex flex-col-reverse">
+                    <!-- Loaded dynamically, aligned using Flex reverse for easy bottom-loading and infinite scroll mapping -->
+                    <div id="messages-anchor"></div>
+                </div>
+
+                <!-- Chat Footer / Input Form -->
+                <div class="bg-white border-t p-4">
+                    <form id="chat-form" class="flex gap-4" onsubmit="sendMessage(event)">
+                        <input type="text" id="chat-input" placeholder="Type a message..." maxlength="4000" required class="flex-grow p-2.5 border rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-2.5 rounded-md transition text-sm flex-shrink-0">Send</button>
+                    </form>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Scripts (order matters: shared state -> api -> ui -> socket -> app) -->
+    <script src="/static/js/api.js"></script>
+    <script src="/static/js/ui.js"></script>
+    <script src="/static/js/socket.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

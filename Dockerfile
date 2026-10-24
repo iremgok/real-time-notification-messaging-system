@@ -1,34 +1,27 @@
-# Stage 1: Dependency builder
-FROM python:3.11-slim as builder
-
-WORKDIR /app
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
-# Install systems build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
-
-# Stage 2: Final runtime image
-FROM python:3.11-slim as runner
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
-# Copy installed libraries and dependencies from builder stage
-COPY --from=builder /root/.local /root/.local
-COPY app /app/app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
-ENV PATH=/root/.local/bin:$PATH \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+COPY src ./src
+
+# Run as an unprivileged user.
+RUN useradd --system --uid 10001 --no-create-home appuser
+USER appuser
 
 EXPOSE 8000
 
-# Run Uvicorn ASGI server
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=4).status == 200 else 1)"
+
+# 1) create tables once (not racing between workers), 2) start N workers.
+#    --ws-max-size drops oversized frames at the protocol level (close 1009).
+#    --proxy-headers lets rate limiting see the real client IP behind nginx.
+CMD ["sh", "-c", "python -m src.manage init-db && exec uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-2} --ws-max-size ${WS_MAX_MESSAGE_BYTES:-16384} --proxy-headers --forwarded-allow-ips='*' --no-server-header"]
