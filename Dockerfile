@@ -10,6 +10,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
+COPY alembic.ini ./
+COPY alembic ./alembic
 COPY src ./src
 
 # Run as an unprivileged user.
@@ -21,7 +23,8 @@ EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health', timeout=4).status == 200 else 1)"
 
-# 1) create tables once (not racing between workers), 2) start N workers.
+# 1) migrate to head once per container (Postgres advisory lock serialises replicas),
+# 2) start N workers.
 #    --ws-max-size drops oversized frames at the protocol level (close 1009).
 #    --proxy-headers lets rate limiting see the real client IP behind nginx.
-CMD ["sh", "-c", "python -m src.manage init-db && exec uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-2} --ws-max-size ${WS_MAX_MESSAGE_BYTES:-16384} --proxy-headers --forwarded-allow-ips='*' --no-server-header"]
+CMD ["sh", "-c", "python -m src.manage migrate && exec uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-2} --ws-max-size ${WS_MAX_MESSAGE_BYTES:-16384} --proxy-headers --forwarded-allow-ips='*' --no-server-header"]

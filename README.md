@@ -11,7 +11,7 @@ docker compose up --build --scale app=3   # 3 replika, nginx önünde
 ```
 
 Compose; PostgreSQL, Redis, uygulama (varsayılan 2 uvicorn worker) ve nginx'i (WebSocket proxy) ayağa kaldırır.
-Tablolar konteyner açılışında `python -m src.manage init-db` ile **bir kez** oluşturulur.
+Şema, konteyner açılışında `python -m src.manage migrate` (= `alembic upgrade head`) ile güncellenir; bkz. [Veritabanı migration'ları](#veritabanı-migrationları-alembic).
 
 Admin yetkisi vermek için:
 
@@ -32,11 +32,16 @@ pytest                                               # Redis/Postgres gerektirme
 ## Mimari
 
 ```
+alembic.ini                 # Alembic ayarları (veritabanı URL'si burada YOK)
+alembic/
+├── env.py                  # async engine, Base.metadata, DATABASE_URL config.py'den
+└── versions/               # migration dosyaları (20261024_0001_initial_schema.py ...)
 src/
 ├── main.py                 # uygulama fabrikası + lifespan (Redis, tablolar, Pub/Sub listener)
-├── manage.py               # init-db, promote-admin
+├── manage.py               # migrate, promote-admin
 ├── core/                   # config (pydantic-settings), logger (gizli veri maskeleme)
-├── models/                 # database (engine/session), entities (ORM), schemas (REST), ws_schemas (WS protokolü)
+├── models/                 # database (engine/session), entities (ORM), migrations (Alembic runner),
+│                           # schemas (REST), ws_schemas (WS protokolü)
 ├── services/               # iş mantığı — HTTP/WS'den bağımsız
 │   ├── auth_service.py     # bcrypt, JWT (PyJWT), kullanıcı işlemleri
 │   ├── room_service.py     # grup / 1:1 oda, üyelik
@@ -100,10 +105,49 @@ src/
 - **Teslim garantisi:** Pub/Sub "en fazla bir kez" iletir; mesajlar önce DB'ye yazıldığı için yeniden bağlanan istemci
   kaçırdıklarını `/messages` ile tamamlar.
 
+## Veritabanı migration'ları (Alembic)
+
+Şema yalnızca Alembic ile yönetilir (`create_all` kullanılmaz). `alembic/env.py`, `DATABASE_URL`'yi
+`src/core/config.py` üzerinden (ortam değişkeni / `.env`) okur ve modelleri `Base.metadata`'dan alır.
+
+**Şema ne zaman güncellenir?**
+
+| Ortam | Mekanizma |
+|---|---|
+| Docker | Konteyner açılışında, worker'lar başlamadan önce `python -m src.manage migrate`. PostgreSQL advisory lock sayesinde `--scale app=N` ile aynı anda açılan replikalardan yalnızca biri migration uygular. |
+| Yerel (`uvicorn`) | `DB_AUTO_MIGRATE=true` (varsayılan) ise uygulama açılırken `upgrade head` çalışır. Çok worker'lı kurulumlarda `false` yapıp migration'ı ayrı bir adımda çalıştırın. |
+
+**Günlük kullanım** (proje kökünde; Docker içinde: `docker compose exec app alembic ...`):
+
+```bash
+# 1) src/models/entities.py içinde modeli değiştir
+# 2) migration üret ve dosyayı MUTLAKA gözden geçir (yeniden adlandırmaları drop+add olarak algılayabilir)
+alembic revision --autogenerate -m "add last_seen to users"
+# 3) uygula / kontrol et
+alembic upgrade head
+alembic current            # veritabanının sürümü
+alembic history            # tüm sürümler
+alembic downgrade -1       # bir adım geri al
+alembic upgrade head --sql # SQL'i çalıştırmadan yazdır (DBA incelemesi için)
+```
+
+**Kurallar**
+- Modeli değiştirip migration üretmeyi unutursanız `tests/test_migrations.py` başarısız olur (modeller ile migration'lar karşılaştırılır).
+- Kısıt isimleri `NAMING_CONVENTION` (`src/models/database.py`) ile sabittir; SQLite'ta `ALTER` kısıtları için batch modu açıktır.
+- Yayına alınmış bir migration dosyasını değiştirmeyin; düzeltme için yeni bir revision ekleyin.
+- Production'da `upgrade` öncesi yedek alın; yıkıcı adımları (kolon silme) iki sürüme yayın.
+
+**Alembic'ten önce oluşturulmuş veritabanları:** `migrate`, tabloları olup `alembic_version` tablosu olmayan bir
+veritabanı bulursa modellerle karşılaştırır. Tablo ve kolonlar eşleşiyorsa veritabanını `head` olarak işaretler
+(`stamp`); eşleşmiyorsa hiçbir şeye dokunmadan hata verir (yedek alıp elle taşıyın veya veritabanını yeniden oluşturun).
+
+**Güvenlik:** `alembic.ini` veritabanı URL'si içermez; migration'lar parametreleri gizleyen ayrı bir engine kullanır ve
+loglardaki `scheme://kullanıcı:parola@` biçimindeki parolalar maskelenir.
+
 ## Bilinen sınırlar / sonraki adımlar
 
-- Şema **değişiklikleri** için migration aracı (Alembic) henüz yok; `create_all` yalnızca eksik tabloları oluşturur.
-  Eski sürümden gelen bir Postgres volume'u varsa yeni kolonlar (`is_admin`, `dm_key` …) için `docker compose down -v` gerekir.
+- İlk `app/` sürümünden kalan bir Postgres volume'u yeni kolonları (`is_admin`, `dm_key` …) içermediği için
+  `migrate` tarafından reddedilir; yedek alıp `docker compose down -v` ile sıfırlayın.
 - Grup odalarında teslim durumu mesaj başına tektir (alıcı başına değil).
 - Grup odaları ID'yi bilen herkesin katılımına açıktır (davet/rol sistemi yok).
 - Her instance tüm `chat:*` kanallarını dinler; çok büyük kümelerde oda bazlı dinamik abonelik veya Redis Streams düşünülmeli.

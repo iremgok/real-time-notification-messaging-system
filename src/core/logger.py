@@ -12,6 +12,8 @@ import sys
 from src.core.config import settings
 
 _REDACTIONS: list[tuple[re.Pattern[str], str]] = [
+    # Credentials inside connection URLs: postgresql+asyncpg://user:secret@host -> user:[REDACTED]@host
+    (re.compile(r"(?i)(\b[a-z][a-z0-9+.-]*://[^:/@\s]*:)[^@\s]+@"), r"\1[REDACTED]@"),
     (re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*"), "[REDACTED_JWT]"),
     (re.compile(r"(?i)(bearer\s+)\S+"), r"\1[REDACTED]"),
     (re.compile(r"(?i)([?&](?:token|access_token)=)[^&\s\"']+"), r"\1[REDACTED]"),

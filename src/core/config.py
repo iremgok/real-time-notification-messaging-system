@@ -27,7 +27,9 @@ class Settings(BaseSettings):
 
     # --- Database ---
     DATABASE_URL: str = "sqlite+aiosqlite:///./chat.db"
-    DB_AUTO_CREATE_TABLES: bool = True
+    # Run `alembic upgrade head` on startup. Convenient locally; in Docker the image CMD
+    # migrates once before the workers start, so this is disabled there.
+    DB_AUTO_MIGRATE: bool = True
     DB_POOL_SIZE: int = Field(default=10, ge=1)
 
     # --- Redis ---

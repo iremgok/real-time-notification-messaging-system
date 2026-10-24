@@ -1,6 +1,6 @@
 """Operational commands.
 
-    python -m src.manage init-db                 # create tables (run once before starting workers)
+    python -m src.manage migrate                 # alembic upgrade head (+ adopt pre-Alembic databases)
     python -m src.manage promote-admin <username>
 """
 
@@ -10,15 +10,11 @@ import asyncio
 from sqlalchemy import update
 
 from src.core.logger import get_logger, setup_logging
-from src.models.database import SessionFactory, create_tables, dispose_engine
+from src.models.database import SessionFactory, dispose_engine
 from src.models.entities import User
+from src.models.migrations import upgrade_to_head
 
 logger = get_logger("manage")
-
-
-async def _init_db() -> None:
-    await create_tables()
-    logger.info("Database schema is up to date")
 
 
 async def _promote_admin(username: str) -> None:
@@ -32,9 +28,7 @@ async def _promote_admin(username: str) -> None:
 
 async def _run(args: argparse.Namespace) -> None:
     try:
-        if args.command == "init-db":
-            await _init_db()
-        elif args.command == "promote-admin":
+        if args.command == "promote-admin":
             await _promote_admin(args.username)
     finally:
         await dispose_engine()
@@ -43,12 +37,16 @@ async def _run(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m src.manage")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("init-db", help="Create database tables")
+    commands.add_parser("migrate", help="Upgrade the database schema to the latest revision")
     promote = commands.add_parser("promote-admin", help="Grant admin rights to a user")
     promote.add_argument("username")
 
+    args = parser.parse_args()
     setup_logging()
-    asyncio.run(_run(parser.parse_args()))
+    if args.command == "migrate":
+        upgrade_to_head()  # synchronous: Alembic manages its own event loop
+        return
+    asyncio.run(_run(args))
 
 
 if __name__ == "__main__":

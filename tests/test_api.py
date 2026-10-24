@@ -50,6 +50,9 @@ def test_invalid_cursor_rejected(client, make_user):
 
 
 def test_redaction():
-    text = redact("GET /ws?token=eyJabc.def.ghi password=hunter2 mail a@b.com Bearer xyz")
-    for secret in ("hunter2", "eyJabc", "a@b.com", "xyz"):
+    text = redact(
+        "GET /ws?token=eyJabc.def.ghi password=hunter2 mail a@b.com Bearer xyz "
+        "postgresql+asyncpg://chat:db-pass@postgres:5432/chat"
+    )
+    for secret in ("hunter2", "eyJabc", "a@b.com", "xyz", "db-pass"):
         assert secret not in text

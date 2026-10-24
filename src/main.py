@@ -1,5 +1,6 @@
 """FastAPI application entry point and lifespan management."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,7 +14,8 @@ from src.api.errors import register_exception_handlers
 from src.api.routes import api_router
 from src.core.config import settings
 from src.core.logger import get_logger, setup_logging
-from src.models.database import create_tables, dispose_engine
+from src.models.database import dispose_engine
+from src.models.migrations import upgrade_to_head
 from src.services.redis_service import redis_service
 from src.websockets.endpoints import router as ws_router
 from src.websockets.manager import manager
@@ -27,9 +29,10 @@ STATIC_DIR = Path(__file__).parent / "static"
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting %s (env=%s)", settings.PROJECT_NAME, settings.ENVIRONMENT)
+    if settings.DB_AUTO_MIGRATE:
+        # Alembic's env.py runs its own event loop, so migrate in a worker thread.
+        await asyncio.to_thread(upgrade_to_head)
     await redis_service.connect()
-    if settings.DB_AUTO_CREATE_TABLES:
-        await create_tables()
     redis_service.start_listener(manager.dispatch)
     try:
         yield
